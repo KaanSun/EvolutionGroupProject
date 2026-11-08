@@ -1,6 +1,33 @@
-.DS_Store
+# --- osmnx HTTP cache
+cache/
+
+# --- generated site data (rebuild with: python wolfe_island_site.py)
+*.gpkg
+*.gpkg-journal
+*.gpkg-wal
+*.gpkg-shm
+*.npz
+# keep the plot
+!wolfe_island_site.png
+
+# --- large raw data downloads (e.g. Global Wind Atlas GeoTIFFs)
+*.tif
+*.tiff
+
+# --- Python
 __pycache__/
 *.py[cod]
 .ipynb_checkpoints/
-.env
+
+# --- environments / installers
 .venv/
+venv/
+Miniforge3-*.sh
+miniforge3-*.sh
+
+# --- editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*:Zone.Identifier
