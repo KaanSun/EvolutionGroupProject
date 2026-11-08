@@ -1,6 +1,13 @@
 name: evolutionaryproject
 channels:
-  - defaults
+  - conda-forge
 dependencies:
   - python=3.12
   - pip
+  - numpy
+  - scipy
+  - matplotlib
+  - geopandas
+  - shapely>=2.0
+  - osmnx>=2.0
+  - rasterio
