@@ -5,8 +5,10 @@ from math import gamma
 
 sector_dirs_from = np.arange(0, 360, 30)          # 12 sectors: 0, 30, ..., 330 (direction wind comes FROM)
 
-freq = np.array([...])                             # frequency rose, % per sector (12 values)
-speed_share = np.array([...])                      # speed rose, % per sector (12 values)
+freq = np.array([4.1, 7.0, 4.3, 1.1, 0.5, 4.7, 23.4, 12.7, 16.6, 9.7, 7.8, 4.8])
+#               N    30   60   E    120  150  S     210   240   W    300  330                          # frequency rose, % per sector (12 values)
+speed_share = np.array([6.0, 8.1, 7.1, 2.0, 1.1, 4.8, 15.8, 12.8, 14.7, 9.8, 8.9, 6.0])
+#                       N    30   60   E    120  150  S     210   240   W    300  330                 # speed rose, % per sector (12 values)
 mean_speed = 7.5                                   # site mean wind speed at hub height (m/s), from GWA
 k_weibull = 2.0                                    # Weibull shape, from GWA (≈2 is typical)
 
