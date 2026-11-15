@@ -59,8 +59,10 @@ turbines = ox.features_from_polygon(
 turbines = turbines[turbines.geom_type == "Point"]
 
 # keep only geometry (OSM tag columns are messy) and project to metres
-island, roads, buildings, turbines = (
-    g[["geometry"]].to_crs(CRS_M) for g in (island, roads, buildings, turbines))
+island = island[["geometry"]].to_crs(CRS_M)
+buildings = buildings[["geometry"]].to_crs(CRS_M)
+turbines = turbines[["geometry"]].to_crs(CRS_M)
+roads = roads[["geometry", "highway"]].to_crs(CRS_M)
 
 print(f"roads: {len(roads)}  buildings: {len(buildings)}  "
       f"existing turbines: {len(turbines)}")
@@ -69,7 +71,10 @@ print(f"roads: {len(roads)}  buildings: {len(buildings)}  "
 site = island.geometry.union_all()
 
 house_zone = buildings.buffer(SETBACK_HOUSE).union_all()
-road_zone = roads.buffer(SETBACK_ROAD).union_all()
+
+main_roads = roads[~roads["highway"].isin(["service", "track"])]
+road_zone = main_roads.buffer(SETBACK_ROAD).union_all()
+
 shore_zone = site.boundary.buffer(SETBACK_SHORE)
 
 excluded = shapely.union_all([house_zone, road_zone, shore_zone])
