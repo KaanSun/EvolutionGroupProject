@@ -21,7 +21,7 @@ import shapely
 from shapely.geometry import box
 from rasterio.features import rasterize
 from rasterio.transform import from_origin
-from scipy.ndimage import distance_transform_edt
+from scipy.ndimage import distance_transform_edt, label
 
 # ---------------------------------------------------------------- config
 PLACE = "Wolfe Island, Ontario, Canada"
@@ -108,6 +108,17 @@ on_road = rasterize(main_roads.geometry, out_shape=mask.shape, transform=tf,
     all_touched=True, fill=0, default_value = 1, dtype="uint8")
 on_road = on_road[::-1]
 road_dist = distance_transform_edt(on_road == 0) * GRID_RES
+
+# keep only feasible cells reachable overland from a main road without crossing wetlands
+in_wet = rasterize(wetlands.geometry, out_shape=mask.shape, transform=tf,
+                   all_touched=True, fill=0, default_value=1, dtype="uint8")[::-1].astype(bool)
+in_site = shapely.contains_xy(site, XX, YY)
+passable = in_site & (~in_wet | (on_road == 1))     # roads crossing a wetland still count
+labels, _ = label(passable)                          # connected areas of dry land
+road_labels = np.unique(labels[(on_road == 1) & passable])
+reachable = np.isin(labels, road_labels[road_labels > 0])
+print(f"cells cut off by wetland: {(mask & ~reachable).sum()}")
+mask &= reachable
 
 np.savez_compressed("wolfe_island_mask.npz", mask=mask, road_dist=road_dist, x0=minx, y0=miny, res=GRID_RES)
 
