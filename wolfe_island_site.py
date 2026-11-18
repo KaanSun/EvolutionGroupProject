@@ -26,7 +26,7 @@ CRS_M = "EPSG:32618"          # UTM zone 18N: metres, correct for Kingston area
 
 # Optional: restrict to the western part where the real farm sits.
 # (min_lon, min_lat, max_lon, max_lat) in WGS84 — set to None for whole island.
-SITE_BBOX = (-76.50, 44.08, -76.30, 44.22)   # rough guess: CHECK on the plot
+SITE_BBOX = (-76.50, 44.08, -76.30, 44.20)   # rough guess: CHECK on the plot
 
 # Setbacks in metres — placeholders, verify against O. Reg. 359/09
 SETBACK_HOUSE = 550
@@ -48,6 +48,12 @@ if SITE_BBOX is not None:
 site_poly_wgs = island.geometry.union_all()
 
 # ---------------------------------------------------------------- OSM layers
+wetlands = ox.features_from_polygon(
+    site_poly_wgs, 
+    tags={"natural": "wetland"}
+)
+wetlands = wetlands[wetlands.geom_type.isin(["Polygon", "MultiPolygon"])]
+
 roads = ox.features_from_polygon(site_poly_wgs, tags={"highway": True})
 roads = roads[roads.geom_type.isin(["LineString", "MultiLineString"])]
 
@@ -59,8 +65,11 @@ turbines = ox.features_from_polygon(
 turbines = turbines[turbines.geom_type == "Point"]
 
 # keep only geometry (OSM tag columns are messy) and project to metres
-island, roads, buildings, turbines = (
-    g[["geometry"]].to_crs(CRS_M) for g in (island, roads, buildings, turbines))
+island = island[["geometry"]].to_crs(CRS_M)
+buildings = buildings[["geometry"]].to_crs(CRS_M)
+turbines = turbines[["geometry"]].to_crs(CRS_M)
+roads = roads[["geometry", "highway"]].to_crs(CRS_M)
+wetlands = wetlands[["geometry"]].to_crs(CRS_M)
 
 print(f"roads: {len(roads)}  buildings: {len(buildings)}  "
       f"existing turbines: {len(turbines)}")
@@ -69,10 +78,13 @@ print(f"roads: {len(roads)}  buildings: {len(buildings)}  "
 site = island.geometry.union_all()
 
 house_zone = buildings.buffer(SETBACK_HOUSE).union_all()
-road_zone = roads.buffer(SETBACK_ROAD).union_all()
+main_roads = roads[~roads["highway"].isin(["service", "track"])]
+road_zone = main_roads.buffer(SETBACK_ROAD).union_all()
 shore_zone = site.boundary.buffer(SETBACK_SHORE)
 
-excluded = shapely.union_all([house_zone, road_zone, shore_zone])
+nature_zone = wetlands.geometry.union_all()
+
+excluded = shapely.union_all([house_zone, road_zone, shore_zone, nature_zone])
 feasible = site.difference(excluded)
 
 print(f"site area: {site.area/1e6:.1f} km^2   "
@@ -101,7 +113,10 @@ if len(turbines):
 fig, ax = plt.subplots(figsize=(10, 8))
 gpd.GeoSeries([site], crs=CRS_M).plot(ax=ax, color="#ddd")
 gpd.GeoSeries([feasible], crs=CRS_M).plot(ax=ax, color="#9c9", alpha=0.7)
-roads.plot(ax=ax, color="#555", linewidth=0.6)
+wetlands.plot(ax=ax, color="darkgreen", alpha=0.6)
+main_roads.plot(ax=ax, color="#555", linewidth=0.6)
+service_roads = roads[roads["highway"].isin(["service", "track"])]
+service_roads.plot(ax=ax, color="brown", linewidth=0.8, linestyle="--")
 buildings.centroid.plot(ax=ax, color="crimson", markersize=3)
 if len(turbines):
     turbines.plot(ax=ax, color="navy", markersize=12, marker="^")

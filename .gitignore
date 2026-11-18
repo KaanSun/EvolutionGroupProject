@@ -10,10 +10,6 @@ cache/
 # keep the plot
 !wolfe_island_site.png
 
-# --- large raw data downloads (e.g. Global Wind Atlas GeoTIFFs)
-*.tif
-*.tiff
-
 # --- Python
 __pycache__/
 *.py[cod]
