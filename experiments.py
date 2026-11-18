@@ -25,7 +25,9 @@ from ea import Config, run, save_run
 CONFIGS = {
     "scheduled": Config(mutation="scheduled"),
     "cauchy": Config(mutation="cauchy"),
-    "no_crossover": Config(mutation="scheduled", p_crossover=0.0),
+    "no_crossover": Config(mutation="scheduled", p_crossover=0.0) 
+    "no_cable": Config(mutation="scheduled", cable_weight=0.0),
+    "cable_1.0": Config(mutation="scheduled", cable_weight=1.0)
 }
 
 

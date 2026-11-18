@@ -51,13 +51,14 @@ class Config:
     sigma_min: float = 20.0         # Gaussian step size at end (m)
     p_turbine: float = 2 / 86       # per-turbine mutation probability (exploitation)
     cauchy_scale: float = 60.0      # Cauchy scale (m) for the "cauchy" mode
+    cable_weight: float = 0.3       # GWh/yr of fitness per km of cable (tune)
     seed: int = 0
 
 
 # ------------------------------------------------------------------ fitness
-def fitness(xy):
+def fitness(xy, cable_weight=0.0):
     """AEP in GWh/yr minus spacing penalty. Assumes xy is already repaired."""
-    return aep(xy) / 1e6 - PENALTY_GWH * st.spacing_violations(xy)
+    return (aep(xy) / 1e6 - PENALTY_GWH * st.spacing_violations(xy) - cable_weight * st.cable_length(xy) / 1000)
 
 
 # ------------------------------------------------------------------ operators
@@ -111,9 +112,10 @@ def run(cfg: Config, verbose=True):
     t0 = time.time()
 
     pop = [st.random_layout(rng) for _ in range(cfg.mu)]
-    fits = np.array([fitness(x) for x in pop])
+    fits = np.array([fitness(x, cfg.cable_weight) for x in pop])
     evals = cfg.mu
-    history = [(0, evals, fits.max(), fits.mean())]
+    b = pop[int(np.argmax(fits))]
+    history = [(0, evals, fits.max(), fits.mean(), aep(b) / 1e6, st.cable_length(b) / 1000)]
     gen = 0
 
     while evals + cfg.lam <= cfg.evals:
@@ -131,7 +133,7 @@ def run(cfg: Config, verbose=True):
             child = mutate(child, progress, cfg, rng)
             child = st.repair(child, rng)
             children.append(child)
-            child_fits.append(fitness(child))
+            child_fits.append(fitness(child, cfg.cable_weight))
         evals += cfg.lam
 
         # (mu + lambda) survivor selection
@@ -141,10 +143,13 @@ def run(cfg: Config, verbose=True):
         pop = [all_pop[i] for i in keep]
         fits = all_fits[keep]
 
-        history.append((gen, evals, fits.max(), fits.mean()))
+        b = pop[0]
+        best_aep, best_km = aep(b) / 1e6, st.cable_length(b) / 1000
+        history.append((gen, evals, fits.max(), fits.mean(), best_aep, best_km))
         if verbose and gen % 10 == 0:
             print(f"gen {gen:4d}  evals {evals:6d}  best {fits.max():7.2f}  "
-                  f"mean {fits.mean():7.2f} GWh/yr  ({time.time() - t0:.0f}s)")
+                  f"mean {fits.mean():7.2f}   (AEP {best_aep:.1f} GWh/yr, "
+                  f"cable {best_km:.1f} km )  ({time.time() - t0:.0f}s)")
 
     best = pop[int(np.argmax(fits))]
     return best, float(fits.max()), history
@@ -156,7 +161,7 @@ def save_run(cfg, best, best_fit, history, out_root="results"):
     np.save(out / "best_layout.npy", best)
     with open(out / "history.csv", "w", newline="") as fh:
         w = csv.writer(fh)
-        w.writerow(["generation", "evals", "best_fitness", "mean_fitness"])
+        w.writerow(["generation", "evals", "best_fitness", "mean_fitness", "best_aep_gwh", "best_cable_km"])
         w.writerows(history)
     with open(out / "config.csv", "w", newline="") as fh:
         w = csv.writer(fh)
@@ -177,12 +182,22 @@ def plot_run(best, history, out):
         try:
             gpd.read_file(gpkg, layer="site").plot(ax=ax, color="#ddd")
             gpd.read_file(gpkg, layer="feasible").plot(ax=ax, color="#9c9", alpha=0.6)
+            gpd.read_file(gpkg, layer="roads").plot(ax=ax, color="#555", linewidth=0.5)
+
         except Exception:
             pass
+        cable_m, edges = st.cable_tree(xy)
+        n = len(xy)
+        for a,b in edges:
+            if b < n:
+                ax.plot(*xy[[a, b]].T, color="orange", lw=0.8, zorder=2)
+            else:
+                ax.scatter(*xy[a], s=70, facecolor="none", edgecolor="orange", zorder=2)
         e = turbine_aep(xy) / 1e6
         sc = ax.scatter(xy[:, 0], xy[:, 1], c=e, cmap="viridis", s=28,
                         edgecolor="k", linewidth=0.4, zorder=3)
-        ax.set_title(f"{name}: {e.sum():.0f} GWh/yr, wake loss {wake_loss(xy):.1%}")
+        ax.set_title(f"{name}: {e.sum():.0f} GWh/yr, wake loss {wake_loss(xy):.1%}, "
+                    f" cable {cable_m / 1000:.1f} km")
         ax.set_axis_off()
     fig.colorbar(sc, ax=axes[:-1], shrink=0.7, label="turbine AEP (GWh/yr)")
 
@@ -208,7 +223,8 @@ if __name__ == "__main__":
     if real is not None:
         print(f"real layout: {len(real)} turbines, {aep(real) / 1e6:.1f} GWh/yr, "
               f"wake loss {wake_loss(real):.1%}, in mask {st.in_mask(real).sum()}/{len(real)}, "
-              f"spacing violations {st.spacing_violations(real)}")
+              f"spacing violations {st.spacing_violations(real)}, "
+              f"cable {st.cable_length(real) / 1000:.1f} km")
 
     best, best_fit, history = run(cfg)
     out = save_run(cfg, best, best_fit, history)

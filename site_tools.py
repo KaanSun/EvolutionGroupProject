@@ -9,6 +9,7 @@ Run `python wolfe_island_site.py` once before using this module.
 from pathlib import Path
 
 import numpy as np
+from scipy.sparse.csgraph import minimum_spanning_tree
 
 from wind_model import ROTOR_D
 
@@ -21,6 +22,7 @@ MASK = _m["mask"]
 X0, Y0, RES = float(_m["x0"]), float(_m["y0"]), float(_m["res"])
 _rows, _cols = np.nonzero(MASK)
 FEASIBLE_XY = np.column_stack([X0 + (_cols + 0.5) * RES, Y0 + (_rows + 0.5) * RES])
+ROAD_DIST = _m["road_dist"]
 
 
 def in_mask(xy):
@@ -49,6 +51,32 @@ def random_feasible_points(rng, m):
     idx = rng.integers(len(FEASIBLE_XY), size=m)
     return FEASIBLE_XY[idx] + rng.uniform(-RES / 2, RES / 2, size=(m, 2))
 
+def road_distance(xy):
+    """Distance (m) from each turbine to the nearest main road (grid lookup)"""
+    j = np.clip(np.floor((xy[:, 0] - X0) / RES).astype(int), 0, ROAD_DIST.shape[1] - 1)
+    i = np.clip(np.floor((xy[:, 1] - Y0) / RES).astype(int), 0, ROAD_DIST.shape[0] - 1)
+    return ROAD_DIST[i, j]
+
+def cable_tree(xy):
+    """
+    Minimum spanning tree over the turbines plus one extra noe standing
+    for the whole road network. Every turbine reaches a road, either directly
+    or via other turbines, and each cable is counted once.
+    Returns (total length in m, list of edges (a, b) where b==n means 'road')
+    """
+    n = len(xy)
+    G = np.zeros((n + 1, n + 1))
+    G[:n, :n] = np.linalg.norm(xy[:, None, :] - xy[None, :, :], axis=-1)
+    G[:n, n] = G[n, :n] = road_distance(xy)
+    G = np.maximum(G, 1e-6)
+    np.fill_diagonal(G, 0)
+    T = minimum_spanning_tree(G).tocoo()
+    edges = [(min(a, b), max(a, b)) for a, b in zip(T.row, T.col)]
+    return float(T.data.sum()), edges
+
+def cable_length(xy):
+    """Total cable length (m) of the turbine + road spanning tree"""
+    return cable_tree(xy)[0]
 
 def snap_to_feasible(xy):
     """Move any turbine outside the mask to the nearest allowed cell centre."""

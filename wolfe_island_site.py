@@ -19,6 +19,9 @@ import matplotlib.pyplot as plt
 import osmnx as ox
 import shapely
 from shapely.geometry import box
+from rasterio.features import rasterize
+from rasterio.transform import from_origin
+from scipy.ndimage import distance_transform_edt
 
 # ---------------------------------------------------------------- config
 PLACE = "Wolfe Island, Ontario, Canada"
@@ -79,6 +82,7 @@ site = island.geometry.union_all()
 
 house_zone = buildings.buffer(SETBACK_HOUSE).union_all()
 main_roads = roads[~roads["highway"].isin(["service", "track"])]
+service_roads = roads[roads["highway"].isin(["service", "track"])]
 road_zone = main_roads.buffer(SETBACK_ROAD).union_all()
 shore_zone = site.boundary.buffer(SETBACK_SHORE)
 
@@ -98,13 +102,22 @@ XX, YY = np.meshgrid(xs, ys)
 shapely.prepare(feasible)
 mask = shapely.contains_xy(feasible, XX, YY)   # True = turbine allowed
 
-np.savez_compressed("wolfe_island_mask.npz",
-                    mask=mask, x0=minx, y0=miny, res=GRID_RES)
+# distance (m) from each cell centre to the nearest main road (no service/track)
+tf = from_origin(minx, miny + mask.shape[0] * GRID_RES, GRID_RES, GRID_RES)
+on_road = rasterize(main_roads.geometry, out_shape=mask.shape, transform=tf,
+    all_touched=True, fill=0, default_value = 1, dtype="uint8")
+on_road = on_road[::-1]
+road_dist = distance_transform_edt(on_road == 0) * GRID_RES
+
+np.savez_compressed("wolfe_island_mask.npz", mask=mask, road_dist=road_dist, x0=minx, y0=miny, res=GRID_RES)
+
 
 # ---------------------------------------------------------------- save
 gpd.GeoDataFrame(geometry=[site], crs=CRS_M).to_file(OUT, layer="site")
 gpd.GeoDataFrame(geometry=[feasible], crs=CRS_M).to_file(OUT, layer="feasible")
-roads.to_file(OUT, layer="roads")
+main_roads.to_file(OUT, layer="roads")
+if len(service_roads):
+    service_roads.to_file(OUT, layer="service_roads")
 buildings.to_file(OUT, layer="buildings")
 if len(turbines):
     turbines.to_file(OUT, layer="existing_turbines")
