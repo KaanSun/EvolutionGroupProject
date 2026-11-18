@@ -207,7 +207,7 @@ def plot_run(best, history, out):
     if real is not None:
         axes[-1].axhline(fitness(real), color="grey", ls="--", label="real layout")
     axes[-1].set_xlabel("fitness evaluations")
-    axes[-1].set_ylabel("fitness (GWh/yr)")
+    axes[-1].set_ylabel("fitness")
     axes[-1].legend()
     plt.savefig(out / "summary.png", dpi=150, bbox_inches="tight")
     plt.close(fig)
