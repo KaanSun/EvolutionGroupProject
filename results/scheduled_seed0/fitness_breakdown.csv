@@ -1,0 +1,13 @@
+metric,value
+aep_gwh,631.9501825153837
+electrical_loss_gwh,5.213125927387378
+net_aep_gwh,626.7370565879963
+cable_km,60.21378952821016
+installation_cost,18064136.85846305
+installation_penalty_gwh,7.22565474338522
+spacing_violations,0
+spacing_shortfall,0.0
+spacing_penalty_gwh,0.0
+habitat_score,0.19407812392435053
+habitat_penalty_gwh,0.19407812392435053
+fitness_gwh,619.3173237206868

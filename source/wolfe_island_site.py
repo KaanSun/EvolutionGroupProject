@@ -13,6 +13,9 @@ boolean raster mask the EA can query quickly.
 pip install osmnx geopandas shapely matplotlib numpy
 """
 
+from pathlib import Path
+import os
+
 import numpy as np
 import geopandas as gpd
 import matplotlib.pyplot as plt
@@ -33,13 +36,26 @@ SITE_BBOX = (-76.50, 44.08, -76.30, 44.20)   # rough guess: CHECK on the plot
 
 # Setbacks in metres — placeholders, verify against O. Reg. 359/09
 SETBACK_HOUSE = 550
-SETBACK_ROAD = 65          # blade length + 10 from edge of road
+SETBACK_ROAD = 280          # blade length + 10 from edge of road
 SETBACK_SHORE = 120
 
 GRID_RES = 25                 # raster cell size in metres
-OUT = "wolfe_island_site.gpkg"
+DATA_DIR = Path(__file__).resolve().parent.parent
+OUT = DATA_DIR / "wolfe_island_site.gpkg"
+# Use a regional mirror; keep an override for server outages or other sites.
+ox.settings.overpass_url = os.environ.get(
+    "OSMNX_OVERPASS_URL", "https://ovp.dresel.systems/api-na")
+# These mirrors do not use the main server's slot-status protocol. Queries
+# here are sequential, and each mirror still enforces its own request limits.
+ox.settings.overpass_rate_limit = ox.settings.overpass_url.rstrip("/") not in {
+    "https://ovp.dresel.systems/api-na",
+    "https://overpass.kumi.systems/api",
+    "https://overpass.private.coffee/api",
+}
+ox.settings.http_user_agent = "EvolutionGroupProject/1.0 (academic wind farm layout modelling)"
 
 # ---------------------------------------------------------------- boundary
+print("Downloading island boundary from OpenStreetMap...", flush=True)
 island = ox.geocode_to_gdf(PLACE)
 if island.geometry.iloc[0].geom_type not in ("Polygon", "MultiPolygon"):
     raise ValueError("Geocoder returned a point, not the island polygon. "
@@ -51,6 +67,8 @@ if SITE_BBOX is not None:
 site_poly_wgs = island.geometry.union_all()
 
 # ---------------------------------------------------------------- OSM layers
+print("Downloading wetlands, roads, buildings and turbines (first run may take a few minutes)...",
+      flush=True)
 wetlands = ox.features_from_polygon(
     site_poly_wgs, 
     tags={"natural": "wetland"}
@@ -110,8 +128,9 @@ on_road = on_road[::-1]
 road_dist = distance_transform_edt(on_road == 0) * GRID_RES
 
 # keep only feasible cells reachable overland from a main road without crossing wetlands
-in_wet = rasterize(wetlands.geometry, out_shape=mask.shape, transform=tf,
-                   all_touched=True, fill=0, default_value=1, dtype="uint8")[::-1].astype(bool)
+in_wet = (rasterize(wetlands.geometry, out_shape=mask.shape, transform=tf,
+                    all_touched=True, fill=0, default_value=1, dtype="uint8")[::-1].astype(bool)
+          if len(wetlands) else np.zeros(mask.shape, dtype=bool))
 in_site = shapely.contains_xy(site, XX, YY)
 passable = in_site & (~in_wet | (on_road == 1))     # roads crossing a wetland still count
 labels, _ = label(passable)                          # connected areas of dry land
@@ -120,13 +139,19 @@ reachable = np.isin(labels, road_labels[road_labels > 0])
 print(f"cells cut off by wetland: {(mask & ~reachable).sum()}")
 mask &= reachable
 
-np.savez_compressed("wolfe_island_mask.npz", mask=mask, road_dist=road_dist, x0=minx, y0=miny, res=GRID_RES)
+habitat_dist = (distance_transform_edt(~in_wet) * GRID_RES if in_wet.any()
+                else np.full(mask.shape, np.inf))
+np.savez_compressed(DATA_DIR / "wolfe_island_mask.npz", mask=mask, road_dist=road_dist,
+                    habitat_dist=habitat_dist, x0=minx, y0=miny, res=GRID_RES)
+print(f"Saved site mask: {DATA_DIR / 'wolfe_island_mask.npz'}", flush=True)
 
 
 # ---------------------------------------------------------------- save
 gpd.GeoDataFrame(geometry=[site], crs=CRS_M).to_file(OUT, layer="site")
 gpd.GeoDataFrame(geometry=[feasible], crs=CRS_M).to_file(OUT, layer="feasible")
 main_roads.to_file(OUT, layer="roads")
+if len(wetlands):
+    wetlands.to_file(OUT, layer="wetlands")
 if len(service_roads):
     service_roads.to_file(OUT, layer="service_roads")
 buildings.to_file(OUT, layer="buildings")
@@ -147,7 +172,7 @@ if len(turbines):
 ax.set_title("Wolfe Island: feasible area (green), roads, houses, turbines")
 ax.set_axis_off()
 plt.tight_layout()
-plt.savefig("wolfe_island_site.png", dpi=200)
+plt.savefig(DATA_DIR / "wolfe_island_site.png", dpi=200)
 plt.show()
 
 

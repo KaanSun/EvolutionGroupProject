@@ -24,7 +24,7 @@ import pandas as pd
 import rasterio
 from pyproj import Transformer
 
-DATA_DIR = Path(__file__).parent
+DATA_DIR = Path(__file__).resolve().parent.parent
 
 # ------------------------------------------------------------------ turbine
 ROTOR_D = 93.0                 # Siemens SWT-2.3-93
@@ -101,13 +101,17 @@ def power_curve(v, v_ci=4.0, v_co=25.0, cp=0.44, rho=1.225):
     return P
 
 # ------------------------------------------------------------------ wake + AEP
-def turbine_aep(xy, wakes=True):
-    """Annual energy (kWh) of EACH turbine in layout xy -> array of length n."""
+def power_scenarios(xy, wakes=True):
+    """Yield (turbine power in kW, probability) for each wind direction.
+
+    Power has shape (speed bins, turbines); probability has shape (speed bins,).
+    Using these same scenarios for cable losses preserves simultaneous loads
+    and E[I**2], which cannot be recovered from annual mean turbine output.
+    """
     xy = np.asarray(xy, dtype=float)
     u_local = local_mean_speed(xy)                         # (n,)
     a = 1 - np.sqrt(1 - CT)
     dxy = xy[:, None, :] - xy[None, :, :]                  # position of i relative to j
-    per_turbine = np.zeros(len(xy))
 
     for s in range(len(SECTOR_DIRS)):
         for off in SUB_OFFSETS:
@@ -120,12 +124,19 @@ def turbine_aep(xy, wakes=True):
                 in_wake = (x > 0) & (r < ROTOR_R + WAKE_K * x)
                 delta = np.where(in_wake,
                                  a / (1 + WAKE_K * np.maximum(x, 0) / ROTOR_R) ** 2, 0.0)
-                d_eff = np.sqrt((delta ** 2).sum(axis=1))      # sum of squares
+                d_eff = np.clip(np.sqrt((delta ** 2).sum(axis=1)), 0, 1)
             else:
                 d_eff = np.zeros(len(xy))
 
             U = VNORM[:, None] * (u_local * (1 - d_eff))[None, :]   # (bins, n)
-            per_turbine += (PROB[s][:, None] * power_curve(U)).sum(axis=0) / len(SUB_OFFSETS)
+            yield power_curve(U), PROB[s] / len(SUB_OFFSETS)
+
+
+def turbine_aep(xy, wakes=True):
+    """Annual energy (kWh) of EACH turbine in layout xy -> array of length n."""
+    per_turbine = np.zeros(len(xy))
+    for power_kw, probability in power_scenarios(xy, wakes=wakes):
+        per_turbine += (probability[:, None] * power_kw).sum(axis=0)
 
     return per_turbine * 8760
 

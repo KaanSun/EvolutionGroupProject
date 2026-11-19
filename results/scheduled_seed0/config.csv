@@ -1,6 +1,18 @@
+spacing_weight,10.0
+cable_weight,
+cable_cost_per_m,300.0
+project_lifetime_years,25.0
+energy_value_per_mwh,100.0
+cable_area_mm2,630.0
+cable_resistivity_ohm_m,2.82e-08
+collection_voltage_v,34500.0
+power_factor,0.95
+electrical_weight,1.0
+habitat_buffer_m,200.0
+habitat_weight,1.0
 mu,50
 lam,100
-evals,20000
+evals,5000
 tournament_k,3
 p_crossover,0.9
 split_sd,0.12
@@ -11,6 +23,5 @@ sigma0,200.0
 sigma_min,20.0
 p_turbine,0.023255813953488372
 cauchy_scale,60.0
-cable_weight,0.3
 seed,0
-best_fitness,639.4328276635359
+best_fitness,619.3173237206868

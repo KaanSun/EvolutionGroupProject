@@ -1,7 +1,7 @@
 # --- osmnx HTTP cache
 cache/
 
-# --- generated site data (rebuild with: python wolfe_island_site.py)
+# --- generated site data (rebuild with: python source/wolfe_island_site.py)
 *.gpkg
 *.gpkg-journal
 *.gpkg-wal

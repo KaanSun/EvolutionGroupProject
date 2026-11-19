@@ -3,26 +3,39 @@ Site constraints for the EA, built on the outputs of wolfe_island_site.py:
     wolfe_island_mask.npz   feasibility raster (setbacks from houses, roads, shore)
     wolfe_island_site.gpkg  map layers + the real 86-turbine layout
 
-Run `python wolfe_island_site.py` once before using this module.
+Run `python source/wolfe_island_site.py` once before using this module.
 """
 
 from pathlib import Path
 
 import numpy as np
 from scipy.sparse.csgraph import minimum_spanning_tree
+from pyproj import Transformer
 
 from wind_model import ROTOR_D
 
-DATA_DIR = Path(__file__).parent
+DATA_DIR = Path(__file__).resolve().parent.parent
 N_TURBINES = 86
 MIN_SPACING = 4 * ROTOR_D          # ~372 m; tune between 3D and 5D
+# Approximate island collector from FITNESS_PENALTIES.md, projected to metres.
+# A fixed root makes every turbine's cable path reach the same destination.
+COLLECTOR_XY = np.array(Transformer.from_crs(
+    "EPSG:4326", "EPSG:32618", always_xy=True).transform(-76.4725, 44.1790))
 
-_m = np.load(DATA_DIR / "wolfe_island_mask.npz")
+try:
+    _m = np.load(DATA_DIR / "wolfe_island_mask.npz")
+except FileNotFoundError:
+    raise FileNotFoundError(
+        f"Site mask has not been generated: {DATA_DIR / 'wolfe_island_mask.npz'}\n"
+        "From the project root, run `python source/wolfe_island_site.py` once, "
+        "then rerun the EA. The site builder needs internet access to download map data."
+    ) from None
 MASK = _m["mask"]
 X0, Y0, RES = float(_m["x0"]), float(_m["y0"]), float(_m["res"])
 _rows, _cols = np.nonzero(MASK)
 FEASIBLE_XY = np.column_stack([X0 + (_cols + 0.5) * RES, Y0 + (_rows + 0.5) * RES])
 ROAD_DIST = _m["road_dist"]
+HABITAT_DIST = _m["habitat_dist"] if "habitat_dist" in _m else None
 
 
 def in_mask(xy):
@@ -57,17 +70,33 @@ def road_distance(xy):
     i = np.clip(np.floor((xy[:, 1] - Y0) / RES).astype(int), 0, ROAD_DIST.shape[0] - 1)
     return ROAD_DIST[i, j]
 
+
+def habitat_distance(xy):
+    """Nearest wetland distance (m), from the site builder's 25 m raster.
+
+    Infinity means the supplied site contains no mapped wetlands. Missing data
+    is an error rather than silently treating habitat penalties as zero.
+    """
+    if HABITAT_DIST is None:
+        raise RuntimeError("Habitat distances are missing. Rebuild the site with "
+                           "`python source/wolfe_island_site.py`, or set --habitat-weight 0.")
+    if not in_mask(xy).all():
+        raise ValueError("Habitat lookup requires turbines inside the feasible mask.")
+    j = np.floor((xy[:, 0] - X0) / RES).astype(int)
+    i = np.floor((xy[:, 1] - Y0) / RES).astype(int)
+    return HABITAT_DIST[i, j]
+
+
 def cable_tree(xy):
     """
-    Minimum spanning tree over the turbines plus one extra noe standing
-    for the whole road network. Every turbine reaches a road, either directly
-    or via other turbines, and each cable is counted once.
-    Returns (total length in m, list of edges (a, b) where b==n means 'road')
+    Straight-line minimum spanning tree over turbines and the fixed collector.
+    Each shared segment is counted once. This is a routing estimate; it does
+    not enforce terrain restrictions or cable capacity on the routes.
+    Returns (total length in m, edges); node n is the collector.
     """
     n = len(xy)
-    G = np.zeros((n + 1, n + 1))
-    G[:n, :n] = np.linalg.norm(xy[:, None, :] - xy[None, :, :], axis=-1)
-    G[:n, n] = G[n, :n] = road_distance(xy)
+    points = np.vstack([xy, COLLECTOR_XY])
+    G = np.linalg.norm(points[:, None, :] - points[None, :, :], axis=-1)
     G = np.maximum(G, 1e-6)
     np.fill_diagonal(G, 0)
     T = minimum_spanning_tree(G).tocoo()
@@ -75,7 +104,7 @@ def cable_tree(xy):
     return float(T.data.sum()), edges
 
 def cable_length(xy):
-    """Total cable length (m) of the turbine + road spanning tree"""
+    """Total cable length (m) of the turbine + collector spanning tree."""
     return cable_tree(xy)[0]
 
 def snap_to_feasible(xy):
